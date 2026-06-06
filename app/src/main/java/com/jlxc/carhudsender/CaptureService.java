@@ -45,6 +45,8 @@ public class CaptureService extends Service {
     private String ip;
     private String targetPackage = "com.autonavi.amapauto";
     private boolean autoAmapOnly = false;
+    private String cachedForegroundPackage = null;
+    private long lastForegroundCheckTime = 0L;
     private int port, cropX, cropY, cropW, cropH, interval, quality;
     private int screenW, screenH, densityDpi;
 
@@ -132,15 +134,28 @@ public class CaptureService extends Service {
     private boolean shouldCaptureNow() {
         if (!autoAmapOnly) return true;
         String foreground = getRecentForegroundPackage();
+
+        // 如果系统没有授予“使用情况访问权限”，或者某些车机 ROM 不返回前台包名，
+        // 这里选择继续发送，避免自动模式几秒后画面冻结。
+        if (foreground == null || foreground.length() == 0) return true;
+
         return targetPackage != null && targetPackage.equals(foreground);
     }
 
     private String getRecentForegroundPackage() {
         try {
-            UsageStatsManager usm = (UsageStatsManager) getSystemService(Context.USAGE_STATS_SERVICE);
-            if (usm == null) return null;
             long now = System.currentTimeMillis();
-            UsageEvents events = usm.queryEvents(now - 5000, now);
+            if (now - lastForegroundCheckTime < 1200L) {
+                return cachedForegroundPackage;
+            }
+            lastForegroundCheckTime = now;
+
+            UsageStatsManager usm = (UsageStatsManager) getSystemService(Context.USAGE_STATS_SERVICE);
+            if (usm == null) return cachedForegroundPackage;
+
+            // 原先只查 5 秒事件：高德持续在前台但没有新事件时会返回 null，导致自动模式暂停发送。
+            // 这里改为查询更长时间，并缓存最后一次前台包名。
+            UsageEvents events = usm.queryEvents(now - 30L * 60L * 1000L, now);
             UsageEvents.Event event = new UsageEvents.Event();
             String lastPackage = null;
             while (events.hasNextEvent()) {
@@ -151,9 +166,12 @@ public class CaptureService extends Service {
                     lastPackage = event.getPackageName();
                 }
             }
-            return lastPackage;
+            if (lastPackage != null && lastPackage.length() > 0) {
+                cachedForegroundPackage = lastPackage;
+            }
+            return cachedForegroundPackage;
         } catch (Throwable e) {
-            return null;
+            return cachedForegroundPackage;
         }
     }
 

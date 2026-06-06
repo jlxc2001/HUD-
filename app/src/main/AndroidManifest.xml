@@ -35,6 +35,29 @@
             android:exported="true"
             android:theme="@style/AppTheme" />
 
+
+        <activity
+            android:name=".CreateStartShortcutActivity"
+            android:exported="true"
+            android:label="开启HUD服务"
+            android:theme="@style/AppTheme">
+            <intent-filter>
+                <action android:name="android.intent.action.CREATE_SHORTCUT" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </activity>
+
+        <activity
+            android:name=".CreateStopShortcutActivity"
+            android:exported="true"
+            android:label="关闭HUD服务"
+            android:theme="@style/AppTheme">
+            <intent-filter>
+                <action android:name="android.intent.action.CREATE_SHORTCUT" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </activity>
+
         <service
             android:name=".CaptureService"
             android:exported="false"
