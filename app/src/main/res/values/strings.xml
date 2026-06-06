@@ -1,0 +1,7 @@
+<resources>
+    <string name="app_name">HUD发射端</string>
+    <string name="shortcut_start_short">开启HUD服务</string>
+    <string name="shortcut_start_long">开启HUD服务并请求屏幕捕获授权</string>
+    <string name="shortcut_stop_short">关闭HUD服务</string>
+    <string name="shortcut_stop_long">关闭HUD服务并清空接收端画面</string>
+</resources>

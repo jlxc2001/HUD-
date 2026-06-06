@@ -19,6 +19,8 @@ import android.os.Handler;
 import android.os.HandlerThread;
 import android.os.IBinder;
 import android.util.DisplayMetrics;
+import android.app.usage.UsageEvents;
+import android.app.usage.UsageStatsManager;
 import android.view.WindowManager;
 
 import java.io.ByteArrayOutputStream;
@@ -41,6 +43,8 @@ public class CaptureService extends Service {
     private AtomicBoolean sending = new AtomicBoolean(false);
 
     private String ip;
+    private String targetPackage = "com.autonavi.amapauto";
+    private boolean autoAmapOnly = false;
     private int port, cropX, cropY, cropW, cropH, interval, quality;
     private int screenW, screenH, densityDpi;
 
@@ -78,6 +82,9 @@ public class CaptureService extends Service {
         cropH = intent.getIntExtra("cropH", 270);
         interval = Math.max(300, intent.getIntExtra("interval", 1000));
         quality = Math.max(30, Math.min(95, intent.getIntExtra("quality", 70)));
+        autoAmapOnly = intent.getBooleanExtra("autoAmap", false);
+        String pkg = intent.getStringExtra("targetPackage");
+        if (pkg != null && pkg.trim().length() > 0) targetPackage = pkg.trim();
 
         WindowManager wm = (WindowManager) getSystemService(WINDOW_SERVICE);
         DisplayMetrics dm = new DisplayMetrics();
@@ -113,12 +120,42 @@ public class CaptureService extends Service {
         @Override
         public void run() {
             try {
-                captureOnce();
+                if (shouldCaptureNow()) {
+                    captureOnce();
+                }
             } catch (Throwable ignored) {
             }
             if (handler != null) handler.postDelayed(this, interval);
         }
     };
+
+    private boolean shouldCaptureNow() {
+        if (!autoAmapOnly) return true;
+        String foreground = getRecentForegroundPackage();
+        return targetPackage != null && targetPackage.equals(foreground);
+    }
+
+    private String getRecentForegroundPackage() {
+        try {
+            UsageStatsManager usm = (UsageStatsManager) getSystemService(Context.USAGE_STATS_SERVICE);
+            if (usm == null) return null;
+            long now = System.currentTimeMillis();
+            UsageEvents events = usm.queryEvents(now - 5000, now);
+            UsageEvents.Event event = new UsageEvents.Event();
+            String lastPackage = null;
+            while (events.hasNextEvent()) {
+                events.getNextEvent(event);
+                int type = event.getEventType();
+                if (type == UsageEvents.Event.MOVE_TO_FOREGROUND
+                        || (Build.VERSION.SDK_INT >= 29 && type == UsageEvents.Event.ACTIVITY_RESUMED)) {
+                    lastPackage = event.getPackageName();
+                }
+            }
+            return lastPackage;
+        } catch (Throwable e) {
+            return null;
+        }
+    }
 
     private void captureOnce() {
         if (imageReader == null || ip == null || ip.length() == 0) return;
@@ -186,7 +223,7 @@ public class CaptureService extends Service {
     private Notification buildNotification(String text) {
         Notification.Builder b = Build.VERSION.SDK_INT >= 26 ? new Notification.Builder(this, CHANNEL_ID) : new Notification.Builder(this);
         b.setContentTitle("HUD发射端")
-                .setContentText(text)
+                .setContentText(autoAmapOnly ? "自动模式：检测到导航软件前台时发送" : text)
                 .setSmallIcon(android.R.drawable.ic_menu_upload)
                 .setOngoing(true);
         return b.build();

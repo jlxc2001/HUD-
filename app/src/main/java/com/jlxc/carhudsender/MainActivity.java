@@ -21,6 +21,7 @@ import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.Button;
+import android.widget.CheckBox;
 import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
@@ -28,12 +29,16 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 import java.io.InputStream;
+import java.io.OutputStream;
+import java.net.HttpURLConnection;
+import java.net.URL;
 
 public class MainActivity extends Activity {
     private static final int REQ_CAPTURE = 1001;
     private static final int REQ_PICK_SCREENSHOT = 1002;
 
-    private EditText ipEdit, portEdit, xEdit, yEdit, wEdit, hEdit, intervalEdit, qualityEdit;
+    private EditText ipEdit, portEdit, xEdit, yEdit, wEdit, hEdit, intervalEdit, qualityEdit, targetPackageEdit;
+    private CheckBox autoAmapCheck;
     private SharedPreferences sp;
     private CropSelectView cropSelectView;
     private TextView cropInfoText;
@@ -73,8 +78,21 @@ public class MainActivity extends Activity {
         subtitle.setTextColor(Color.DKGRAY);
         root.addView(subtitle, new LinearLayout.LayoutParams(-1, -2));
 
+        Button start = new Button(this);
+        start.setText("开始发送 / 请求屏幕捕获权限");
+        start.setTextSize(20);
+        start.setAllCaps(false);
+        start.setOnClickListener(v -> startCaptureFlow());
+        root.addView(start, new LinearLayout.LayoutParams(-1, dp(72)));
+
+        Button stopTop = new Button(this);
+        stopTop.setText("停止发送");
+        stopTop.setAllCaps(false);
+        stopTop.setOnClickListener(v -> stopHudServiceAndNotifyReceiver());
+        root.addView(stopTop, new LinearLayout.LayoutParams(-1, dp(54)));
+
         TextView tip = new TextView(this);
-        tip.setText("步骤：填写接收端 IP → 设置裁剪区域 → 开始发送 → 授权录屏 → 切回导航界面。\n建议：1秒1帧，JPG质量70。裁剪区域可手动填写，也可以通过截图选择。\n如果接收端收不到画面，请确认两台设备在同一个 WiFi / 热点局域网内。建议给接收端设置静态 IP。");
+        tip.setText("步骤：填写接收端 IP → 设置裁剪区域 → 点击上方开始发送 → 授权录屏 → 切回导航界面。\n建议：1秒1帧，JPG质量70。裁剪区域可手动填写，也可以通过截图选择。\n如果接收端收不到画面，请确认两台设备在同一个 WiFi / 热点局域网内。建议给接收端设置静态 IP。\n自动模式说明：Android 不允许未授权静默录屏；需要先点开始发送并授权一次，后台服务才会在检测到高德地图车机版前台运行时自动发送。\n快捷方式说明：桌面/自动化软件中可调用“开启HUD服务”和“关闭HUD服务”。");
         tip.setTextSize(14);
         tip.setPadding(0, dp(10), 0, dp(10));
         root.addView(tip, new LinearLayout.LayoutParams(-1, -2));
@@ -88,23 +106,30 @@ public class MainActivity extends Activity {
         intervalEdit = addField(root, "发送间隔毫秒", sp.getString("interval", "1000"), InputType.TYPE_CLASS_NUMBER);
         qualityEdit = addField(root, "JPG质量 1-100", sp.getString("quality", "70"), InputType.TYPE_CLASS_NUMBER);
 
+        autoAmapCheck = new CheckBox(this);
+        autoAmapCheck.setText("检测到高德地图运行时才发送");
+        autoAmapCheck.setTextSize(15);
+        autoAmapCheck.setChecked(sp.getBoolean("autoAmap", false));
+        root.addView(autoAmapCheck, new LinearLayout.LayoutParams(-1, dp(46)));
+
+        targetPackageEdit = addField(root, "目标导航包名", sp.getString("targetPackage", "com.autonavi.amapauto"), InputType.TYPE_CLASS_TEXT);
+
+        Button usage = new Button(this);
+        usage.setText("打开使用情况访问权限设置");
+        usage.setOnClickListener(v -> {
+            saveSettings();
+            try {
+                startActivity(new Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS));
+            } catch (Exception e) {
+                Toast.makeText(this, "无法打开使用情况访问权限设置", Toast.LENGTH_SHORT).show();
+            }
+        });
+        root.addView(usage, new LinearLayout.LayoutParams(-1, dp(56)));
+
         Button pick = new Button(this);
         pick.setText("通过截图选择裁剪区域");
         pick.setOnClickListener(v -> pickScreenshot());
         root.addView(pick, new LinearLayout.LayoutParams(-1, dp(56)));
-
-        Button start = new Button(this);
-        start.setText("开始发送 / 请求屏幕捕获权限");
-        start.setOnClickListener(v -> startCaptureFlow());
-        root.addView(start, new LinearLayout.LayoutParams(-1, dp(56)));
-
-        Button stop = new Button(this);
-        stop.setText("停止发送");
-        stop.setOnClickListener(v -> {
-            stopService(new Intent(this, CaptureService.class));
-            Toast.makeText(this, "已发送停止命令", Toast.LENGTH_SHORT).show();
-        });
-        root.addView(stop, new LinearLayout.LayoutParams(-1, dp(56)));
 
         Button about = new Button(this);
         about.setText("关于软件");
@@ -144,7 +169,7 @@ public class MainActivity extends Activity {
         root.setBackgroundColor(Color.BLACK);
 
         TextView title = new TextView(this);
-        title.setText("通过截图选择裁剪区域");
+        title.setText("通过截图选择裁剪区域（横屏）");
         title.setGravity(Gravity.CENTER);
         title.setTextColor(Color.WHITE);
         title.setTextSize(20);
@@ -265,13 +290,50 @@ public class MainActivity extends Activity {
                 "1. 建议车机端和接收端连接同一个 WiFi 或手机热点。\n" +
                 "2. 建议给接收端设置静态 IP，避免每次上车 IP 变化。\n" +
                 "3. 如果导航卡片显示不完整，可以手动修改 X/Y/宽度/高度，或使用“通过截图选择裁剪区域”。\n" +
-                "4. 第一版推荐 1 秒 1 帧、JPG质量70，稳定后再提高刷新率。\n" +
-                "5. 本软件只发送裁剪后的导航画面，不上传任何数据到互联网。";
+                "4. 推荐 1 秒 1 帧、JPG质量70，稳定后再提高刷新率。\n" +
+                "5. 如果开启自动模式，请给本软件授予‘使用情况访问权限’，这样它才能判断高德地图是否在前台。\n" +
+                "6. Android 10 不能在未授权的情况下静默开始录屏；首次或服务被系统停止后，仍需用户手动授权屏幕捕获。\n" +
+                "7. 本软件只发送裁剪后的导航画面，不上传任何数据到互联网。";
         new AlertDialog.Builder(this)
                 .setTitle("关于 HUD发射端")
                 .setMessage(message)
                 .setPositiveButton("确定", null)
                 .show();
+    }
+
+    private void stopHudServiceAndNotifyReceiver() {
+        saveSettings();
+        String ip = ipEdit.getText().toString().trim();
+        int port = parseInt(portEdit, 45678);
+        stopService(new Intent(this, CaptureService.class));
+        sendStopCommand(ip, port);
+        Toast.makeText(this, "已停止发送，并通知接收端清屏", Toast.LENGTH_SHORT).show();
+    }
+
+    private void sendStopCommand(final String ip, final int port) {
+        if (ip == null || ip.length() == 0) return;
+        new Thread(() -> {
+            HttpURLConnection conn = null;
+            try {
+                URL url = new URL("http://" + ip + ":" + port + "/control");
+                byte[] body = "STOP".getBytes("UTF-8");
+                conn = (HttpURLConnection) url.openConnection();
+                conn.setConnectTimeout(800);
+                conn.setReadTimeout(800);
+                conn.setRequestMethod("POST");
+                conn.setDoOutput(true);
+                conn.setRequestProperty("Content-Type", "text/plain; charset=utf-8");
+                conn.setRequestProperty("Content-Length", String.valueOf(body.length));
+                OutputStream os = conn.getOutputStream();
+                os.write(body);
+                os.flush();
+                os.close();
+                conn.getResponseCode();
+            } catch (Exception ignored) {
+            } finally {
+                if (conn != null) conn.disconnect();
+            }
+        }).start();
     }
 
     private void startCaptureFlow() {
@@ -290,6 +352,8 @@ public class MainActivity extends Activity {
                 .putString("h", hEdit.getText().toString().trim())
                 .putString("interval", intervalEdit.getText().toString().trim())
                 .putString("quality", qualityEdit.getText().toString().trim())
+                .putBoolean("autoAmap", autoAmapCheck != null && autoAmapCheck.isChecked())
+                .putString("targetPackage", targetPackageEdit == null ? "com.autonavi.amapauto" : targetPackageEdit.getText().toString().trim())
                 .apply();
     }
 
@@ -309,6 +373,8 @@ public class MainActivity extends Activity {
                 svc.putExtra("cropH", parseInt(hEdit, 270));
                 svc.putExtra("interval", parseInt(intervalEdit, 1000));
                 svc.putExtra("quality", parseInt(qualityEdit, 70));
+                svc.putExtra("autoAmap", autoAmapCheck != null && autoAmapCheck.isChecked());
+                svc.putExtra("targetPackage", targetPackageEdit == null ? "com.autonavi.amapauto" : targetPackageEdit.getText().toString().trim());
                 startService(svc);
                 Toast.makeText(this, "已开始发送。现在可以切回导航软件。", Toast.LENGTH_LONG).show();
             } else {
@@ -334,6 +400,12 @@ public class MainActivity extends Activity {
                 }
             }
         }
+    }
+
+    @Override
+    protected void onPause() {
+        saveSettings();
+        super.onPause();
     }
 
     private int parseInt(EditText et, int def) {
