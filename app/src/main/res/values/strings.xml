@@ -4,4 +4,6 @@
     <string name="shortcut_start_long">开启HUD服务并请求屏幕捕获授权</string>
     <string name="shortcut_stop_short">关闭HUD服务</string>
     <string name="shortcut_stop_long">关闭HUD服务并清空接收端画面</string>
+    <string name="shortcut_start_nav_short">打开HUD服务并开启导航</string>
+    <string name="shortcut_start_nav_long">开启HUD服务后自动打开已选择的导航软件</string>
 </resources>

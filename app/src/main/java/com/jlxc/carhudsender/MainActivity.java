@@ -5,6 +5,8 @@ import android.app.AlertDialog;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
+import android.content.pm.PackageManager;
+import android.content.pm.ResolveInfo;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Canvas;
@@ -30,6 +32,10 @@ import android.widget.Toast;
 
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.List;
 import java.net.HttpURLConnection;
 import java.net.URL;
 
@@ -92,7 +98,7 @@ public class MainActivity extends Activity {
         root.addView(stopTop, new LinearLayout.LayoutParams(-1, dp(54)));
 
         TextView tip = new TextView(this);
-        tip.setText("步骤：填写接收端 IP → 设置裁剪区域 → 点击上方开始发送 → 授权录屏 → 切回导航界面。\n建议：1秒1帧，JPG质量70。裁剪区域可手动填写，也可以通过截图选择。\n如果接收端收不到画面，请确认两台设备在同一个 WiFi / 热点局域网内。建议给接收端设置静态 IP。\n自动模式说明：Android 不允许未授权静默录屏；需要先点开始发送并授权一次，后台服务才会在检测到高德地图车机版前台运行时自动发送。\n快捷方式说明：桌面/自动化软件中可调用“开启HUD服务”和“关闭HUD服务”。");
+        tip.setText("步骤：填写接收端 IP → 设置裁剪区域 → 选择导航软件 → 点击上方开始发送 → 授权录屏 → 切回导航界面。\n建议：1秒1帧，JPG质量70。裁剪区域可手动填写，也可以通过截图选择。\n如果接收端收不到画面，请确认两台设备在同一个 WiFi / 热点局域网内。建议给接收端设置静态 IP。\n自动模式说明：Android 不允许未授权静默录屏；需要先点开始发送并授权一次，后台服务才会在检测到目标导航软件前台运行时自动发送。\n快捷方式说明：桌面/自动化软件中可调用“开启HUD服务”“关闭HUD服务”“打开HUD服务并开启导航”。");
         tip.setTextSize(14);
         tip.setPadding(0, dp(10), 0, dp(10));
         root.addView(tip, new LinearLayout.LayoutParams(-1, -2));
@@ -107,12 +113,18 @@ public class MainActivity extends Activity {
         qualityEdit = addField(root, "JPG质量 1-100", sp.getString("quality", "70"), InputType.TYPE_CLASS_NUMBER);
 
         autoAmapCheck = new CheckBox(this);
-        autoAmapCheck.setText("检测到高德地图运行时才发送");
+        autoAmapCheck.setText("检测到目标导航软件运行时才发送");
         autoAmapCheck.setTextSize(15);
         autoAmapCheck.setChecked(sp.getBoolean("autoAmap", false));
         root.addView(autoAmapCheck, new LinearLayout.LayoutParams(-1, dp(46)));
 
-        targetPackageEdit = addField(root, "目标导航包名", sp.getString("targetPackage", "com.autonavi.amapauto"), InputType.TYPE_CLASS_TEXT);
+        targetPackageEdit = addField(root, "目标导航软件包名", sp.getString("targetPackage", "com.autonavi.amapauto"), InputType.TYPE_CLASS_TEXT);
+
+        Button selectNavApp = new Button(this);
+        selectNavApp.setText("选择导航软件");
+        selectNavApp.setAllCaps(false);
+        selectNavApp.setOnClickListener(v -> showNavAppChooser());
+        root.addView(selectNavApp, new LinearLayout.LayoutParams(-1, dp(56)));
 
         Button usage = new Button(this);
         usage.setText("打开使用情况访问权限设置");
@@ -277,6 +289,55 @@ public class MainActivity extends Activity {
         saveSettings();
         Toast.makeText(this, "已写入裁切参数", Toast.LENGTH_SHORT).show();
         buildUi();
+    }
+
+    private void showNavAppChooser() {
+        saveSettings();
+        final PackageManager pm = getPackageManager();
+        Intent launcherIntent = new Intent(Intent.ACTION_MAIN, null);
+        launcherIntent.addCategory(Intent.CATEGORY_LAUNCHER);
+        List<ResolveInfo> apps = pm.queryIntentActivities(launcherIntent, 0);
+        if (apps == null || apps.isEmpty()) {
+            Toast.makeText(this, "没有找到可启动的应用", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        List<ResolveInfo> filtered = new ArrayList<>();
+        for (ResolveInfo info : apps) {
+            if (info.activityInfo == null || info.activityInfo.packageName == null) continue;
+            String pkg = info.activityInfo.packageName;
+            if (getPackageName().equals(pkg)) continue;
+            filtered.add(info);
+        }
+
+        Collections.sort(filtered, new Comparator<ResolveInfo>() {
+            @Override
+            public int compare(ResolveInfo a, ResolveInfo b) {
+                String la = String.valueOf(a.loadLabel(pm));
+                String lb = String.valueOf(b.loadLabel(pm));
+                return la.compareToIgnoreCase(lb);
+            }
+        });
+
+        final String[] labels = new String[filtered.size()];
+        final String[] packages = new String[filtered.size()];
+        for (int i = 0; i < filtered.size(); i++) {
+            ResolveInfo info = filtered.get(i);
+            String label = String.valueOf(info.loadLabel(pm));
+            String pkg = info.activityInfo.packageName;
+            labels[i] = label + "\n" + pkg;
+            packages[i] = pkg;
+        }
+
+        new AlertDialog.Builder(this)
+                .setTitle("选择导航软件")
+                .setItems(labels, (dialog, which) -> {
+                    targetPackageEdit.setText(packages[which]);
+                    saveSettings();
+                    Toast.makeText(this, "已选择：" + packages[which], Toast.LENGTH_SHORT).show();
+                })
+                .setNegativeButton("取消", null)
+                .show();
     }
 
     private void showAboutDialog() {

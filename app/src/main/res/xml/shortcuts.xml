@@ -11,6 +11,16 @@
             android:targetClass="com.jlxc.carhudsender.StartHudActivity" />
     </shortcut>
     <shortcut
+        android:shortcutId="start_hud_service_and_navigate"
+        android:enabled="true"
+        android:shortcutShortLabel="@string/shortcut_start_nav_short"
+        android:shortcutLongLabel="@string/shortcut_start_nav_long">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:targetPackage="com.jlxc.carhudsender"
+            android:targetClass="com.jlxc.carhudsender.StartAndNavigateHudActivity" />
+    </shortcut>
+    <shortcut
         android:shortcutId="stop_hud_service"
         android:enabled="true"
         android:shortcutShortLabel="@string/shortcut_stop_short"
